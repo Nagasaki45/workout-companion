@@ -11,6 +11,37 @@
   let timerValue = 0;
   let timerInterval: number; // To store the interval ID
   let isPaused = true;
+  let wakeLockSentinel: WakeLockSentinel | null = null;
+
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        console.log('Screen Wake Lock activated.');
+        wakeLockSentinel.addEventListener('release', () => {
+          console.log('Screen Wake Lock released automatically.');
+        });
+      } catch (err: any) {
+        console.error(`Failed to activate wake lock: ${err.name}, ${err.message}`);
+      }
+    } else {
+      console.warn('Screen Wake Lock API not supported.');
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLockSentinel) {
+      wakeLockSentinel.release();
+      wakeLockSentinel = null;
+      console.log('Screen Wake Lock released manually.');
+    }
+  }
+
+  function handleVisibilityChange() {
+    if (wakeLockSentinel !== null && document.visibilityState === 'visible' && !isPaused) {
+      requestWakeLock();
+    }
+  }
 
   // Reactive:
   $: currentStep = unrolledSteps[currentStepIndex];
@@ -37,10 +68,15 @@
       // Handle workout not found (e.g., redirect to home)
       goto('/');
     }
+
+    // Add event listeners for wake lock
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', releaseWakeLock);
   });
 
   function startTimer() {
     isPaused = false;
+    requestWakeLock(); // Request wake lock when timer starts
     if (timerValue <= 0 && currentStep.type === 'time') {
         timerValue = currentStep.amount;
     }
@@ -67,16 +103,18 @@
 
       if (nextStep.type === 'time') {
         timerValue = nextStep.amount;
-        startTimer(); // This sets isPaused = false
+        startTimer(); // This sets isPaused = false and requests wake lock
       } else {
         // If the new step is reps-based, we are now "paused" waiting for user input
         isPaused = true;
         timerValue = 0;
+        releaseWakeLock(); // Release wake lock if moving to a reps-based step
       }
     } else {
       currentStepIndex++; // This will trigger the `isWorkoutDone` flag
       isPaused = true;
       timerValue = 0; // Ensure timer is 0 when done
+      releaseWakeLock(); // Release wake lock when workout is complete
     }
   }
 
@@ -96,12 +134,16 @@
       // Pause
       isPaused = true;
       clearInterval(timerInterval);
+      releaseWakeLock(); // Release wake lock when paused
     }
   }
 
   // Cleanup
   onDestroy(() => {
     clearInterval(timerInterval);
+    releaseWakeLock(); // Ensure wake lock is released on component destroy
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('pagehide', releaseWakeLock);
   });
 </script>
 
