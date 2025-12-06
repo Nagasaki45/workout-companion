@@ -12,6 +12,23 @@
   let timerInterval: number; // To store the interval ID
   let isPaused = true;
   let wakeLockSentinel: WakeLockSentinel | null = null;
+  let audioContext: AudioContext | null = null;
+
+  function playBell() {
+    if (!audioContext) return;
+    const now = audioContext.currentTime;
+    const gainNode = audioContext.createGain();
+    gainNode.connect(audioContext.destination);
+    gainNode.gain.setValueAtTime(0.5, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1);
+
+    const oscillator = audioContext.createOscillator();
+    oscillator.connect(gainNode);
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(523.25, now); // C5
+    oscillator.start(now);
+    oscillator.stop(now + 1);
+  }
 
   async function requestWakeLock() {
     if ('wakeLock' in navigator) {
@@ -69,6 +86,15 @@
       goto('/');
     }
 
+    // --- Audio Context ---
+    // Use a try-catch block for Safari compatibility
+    try {
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    } catch (e) {
+      console.error("Web Audio API is not supported in this browser");
+    }
+
+
     // Add event listeners for wake lock
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', releaseWakeLock);
@@ -84,6 +110,7 @@
     timerInterval = setInterval(() => {
       timerValue--;
       if (timerValue <= 0) {
+        playBell();
         advanceToNextStep();
         // Optional: Play a sound
       }
@@ -129,6 +156,14 @@
 
     // For time-based exercises
     if (isPaused) {
+      // Create audio context on user interaction
+      if (!audioContext) {
+        try {
+          audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        } catch (e) {
+          console.error("Web Audio API is not supported in this browser");
+        }
+      }
       startTimer();
     } else {
       // Pause
@@ -144,6 +179,9 @@
     releaseWakeLock(); // Ensure wake lock is released on component destroy
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     window.removeEventListener('pagehide', releaseWakeLock);
+    if (audioContext) {
+      audioContext.close();
+    }
   });
 </script>
 
