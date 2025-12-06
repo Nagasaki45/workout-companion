@@ -30,6 +30,12 @@
     oscillator.stop(now + 1);
   }
 
+  function announceNextExercise() {
+    const toSay = nextStep ? `Next up: ${nextStep.name}` : 'You did it!';
+    const utterance = new SpeechSynthesisUtterance(toSay);
+    speechSynthesis.speak(utterance);
+  }
+
   async function requestWakeLock() {
     if ('wakeLock' in navigator) {
       try {
@@ -110,6 +116,12 @@
 
     timerInterval = setInterval(() => {
       timerValue--;
+      if (
+        currentStep.type === 'time' &&
+        timerValue === 5
+      ) {
+        announceNextExercise();
+      }
       if (timerValue <= 0) {
         playBell();
         advanceToNextStep();
