@@ -23,8 +23,10 @@
 
   function deleteWorkout() {
     if (workout) {
-      workouts.update(currentWorkouts => currentWorkouts.filter(w => w.name !== workout?.name));
-      goto('/');
+      if (confirm(`Are you sure you want to delete "${workout.name}"?`)) {
+        workouts.update(currentWorkouts => currentWorkouts.filter(w => w.name !== workout?.name));
+        goto('/');
+      }
     }
   }
 </script>
@@ -69,6 +71,16 @@
   .button-delete:hover {
     background-color: #c82333;
   }
+  .button-edit {
+    background-color: #ffc107;
+    color: #212529;
+  }
+  .button-edit:hover {
+    background-color: #e0a800;
+  }
+  .exercise-list.standalone li {
+    background-color: #f9f9f9;
+  }
   h2 {
     margin-top: 3rem;
     margin-bottom: 1rem;
@@ -109,6 +121,8 @@
     font-weight: bold;
     font-size: 1.1rem;
     margin-bottom: 0.25rem;
+    display: flex;
+    align-items: center;
   }
   .exercise-details {
     color: #555;
@@ -131,6 +145,7 @@
 
     <div class="actions">
       <a href="/workout/{encodeURIComponent(workoutName)}/run" class="button button-start">Start Workout</a>
+      <a href="/workout/{encodeURIComponent(workoutName)}/edit" class="button button-edit">Edit Workout</a>
       <button on:click={deleteWorkout} class="button button-delete">Delete Workout</button>
     </div>
 
@@ -180,7 +195,7 @@
         {/each}
       </div>
     {:else if workout.exercises}
-      <ul class="exercise-list">
+      <ul class="exercise-list standalone">
         {#each workout.exercises as exercise}
           <li>
             <div class="exercise-name">{exercise.name}</div>
