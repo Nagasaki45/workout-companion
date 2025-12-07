@@ -3,8 +3,6 @@
   import { workouts } from '$lib/stores';
   import { goto } from '$app/navigation';
   import type { WorkoutDefinition, Round, Exercise } from '$lib/types';
-  import { dndzone } from 'svelte-dnd-action';
-  import { flip } from 'svelte/animate';
 
   type DraggableExercise = Exercise & { id: number };
   type DraggableRound = Round & { id: number; exercises: DraggableExercise[] };
@@ -138,20 +136,29 @@
     }
   }
 
-  const flipDurationMs = 200;
-
-  function handleRoundDnd(e: CustomEvent<{ items: Round[]; info: { id: any; trigger: string } }>) {
+  function moveRound(index: number, direction: 'up' | 'down') {
     if (!workout || !workout.rounds) return;
-    workout.rounds = e.detail.items;
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= workout.rounds.length) return;
+
+    const [movedRound] = workout.rounds.splice(index, 1);
+    workout.rounds.splice(newIndex, 0, movedRound);
+
+    workout.rounds = workout.rounds; // Trigger reactivity
     saveWorkout();
   }
 
-  function handleExerciseDnd(
-    e: CustomEvent<{ items: Exercise[]; info: { id: any; trigger: string } }>,
-    roundIndex: number
-  ) {
+  function moveExercise(roundIndex: number, exerciseIndex: number, direction: 'up' | 'down') {
     if (!workout || !workout.rounds) return;
-    workout.rounds[roundIndex].exercises = e.detail.items;
+    const exercises = workout.rounds[roundIndex].exercises;
+    const newIndex = direction === 'up' ? exerciseIndex - 1 : exerciseIndex + 1;
+    if (newIndex < 0 || newIndex >= exercises.length) return;
+
+    const [movedExercise] = exercises.splice(exerciseIndex, 1);
+    exercises.splice(newIndex, 0, movedExercise);
+
+    workout.rounds[roundIndex].exercises = exercises; // Trigger reactivity
+    workout = workout; // Trigger reactivity for parent
     saveWorkout();
   }
 </script>
@@ -342,15 +349,29 @@
     border-radius: 4px;
   }
 
-  .drag-handle {
-    cursor: grab;
-    font-size: 1.5rem;
-    color: #aaa;
-    padding-top: 1rem;
-    user-select: none;
+  .move-buttons {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.25rem;
   }
-  .drag-handle:active {
-    cursor: grabbing;
+  .move-button {
+    background: transparent;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.25rem 0.5rem;
+    color: #555;
+  }
+  .move-button:hover:not(:disabled) {
+    background-color: #f0f0f0;
+    border-color: #aaa;
+  }
+  .move-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.3;
   }
 
   .exercise-form {
@@ -404,16 +425,22 @@
     <h2>Workout Structure</h2>
 
     {#if workout.rounds}
-      <div
-        class="rounds-container"
-        use:dndzone={{ items: workout.rounds, flipDurationMs, dragHandle: '.drag-handle' }}
-        on:consider={handleRoundDnd}
-        on:finalize={handleRoundDnd}
-      >
+      <div class="rounds-container">
         {#each workout.rounds as round, roundIndex (round.id)}
-          <div class="round-card" animate:flip={{ duration: flipDurationMs }}>
+          <div class="round-card">
             <div class="round-header">
-              <span class="drag-handle">☰</span>
+              <div class="move-buttons">
+                <button
+                  class="move-button"
+                  on:click={() => moveRound(roundIndex, 'up')}
+                  disabled={roundIndex === 0}>&uarr;</button
+                >
+                <button
+                  class="move-button"
+                  on:click={() => moveRound(roundIndex, 'down')}
+                  disabled={roundIndex === workout.rounds.length - 1}>&darr;</button
+                >
+              </div>
               <h3>Round {roundIndex + 1}</h3>
               <div class="round-controls">
                 <label for="round-count-{roundIndex}">Count:</label>
@@ -438,15 +465,21 @@
               >
             </div>
 
-            <div
-              class="exercise-list"
-              use:dndzone={{ items: round.exercises, flipDurationMs, dragHandle: '.drag-handle' }}
-              on:consider={e => handleExerciseDnd(e, roundIndex)}
-              on:finalize={e => handleExerciseDnd(e, roundIndex)}
-            >
+            <div class="exercise-list">
               {#each round.exercises as exercise, exerciseIndex (exercise.id)}
-                <div class="exercise-item" animate:flip={{ duration: flipDurationMs }}>
-                  <span class="drag-handle">☰</span>
+                <div class="exercise-item">
+                  <div class="move-buttons">
+                    <button
+                      class="move-button"
+                      on:click={() => moveExercise(roundIndex, exerciseIndex, 'up')}
+                      disabled={exerciseIndex === 0}>&uarr;</button
+                    >
+                    <button
+                      class="move-button"
+                      on:click={() => moveExercise(roundIndex, exerciseIndex, 'down')}
+                      disabled={exerciseIndex === round.exercises.length - 1}>&darr;</button
+                    >
+                  </div>
                   <div class="exercise-form">
                     <div>
                       <label for="ex-name-{roundIndex}-{exerciseIndex}">Name</label>
