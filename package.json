@@ -24,6 +24,7 @@
 	},
 	"dependencies": {
 		"js-yaml": "^4.1.1",
+		"svelte-dnd-action": "^0.9.68",
 		"svelte-persisted-store": "^0.12.0"
 	}
 }

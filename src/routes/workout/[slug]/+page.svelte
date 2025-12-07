@@ -2,32 +2,157 @@
   import { page } from '$app/stores';
   import { workouts } from '$lib/stores';
   import { goto } from '$app/navigation';
-  import type { WorkoutDefinition } from '$lib/types';
-  import { onMount } from 'svelte';
+  import type { WorkoutDefinition, Round, Exercise } from '$lib/types';
+  import { dndzone } from 'svelte-dnd-action';
+  import { flip } from 'svelte/animate';
 
-  let workout: WorkoutDefinition | undefined;
-  let workoutName: string = '';
+  type DraggableExercise = Exercise & { id: number };
+  type DraggableRound = Round & { id: number; exercises: DraggableExercise[] };
 
-  onMount(() => {
+  let workout: (WorkoutDefinition & { rounds?: DraggableRound[] }) | undefined;
+  let originalName: string = '';
+  let idCounter = 0;
+
+  // Find the workout reactively
+  $: {
     const slug = $page.params.slug;
     if (slug) {
-      workoutName = decodeURIComponent(slug);
-      workout = $workouts.find(w => w.name === workoutName);
-      if (!workout) {
-        goto('/');
+      const decodedSlug = decodeURIComponent(slug);
+      // This condition ensures we only load/clone the workout when the slug changes,
+      // or when the component initially mounts and `workout` is undefined.
+      if (!workout || originalName !== decodedSlug) {
+        const foundWorkout = $workouts.find(w => w.name === decodedSlug);
+        if (foundWorkout) {
+          const workoutWithIds: any = JSON.parse(JSON.stringify(foundWorkout));
+          if (workoutWithIds.rounds) {
+            workoutWithIds.rounds.forEach((round: any) => {
+              round.id = idCounter++;
+              round.exercises.forEach((ex: any) => {
+                ex.id = idCounter++;
+              });
+            });
+          }
+          workout = workoutWithIds;
+          originalName = workout.name;
+        } else {
+          goto('/');
+        }
       }
     } else {
       goto('/');
     }
-  });
+  }
+
+  function saveWorkout() {
+    if (!workout) return;
+
+    // Create a deep copy to strip IDs before saving, so we don't mutate component state
+    const workoutToSave: WorkoutDefinition = JSON.parse(JSON.stringify(workout));
+    if (workoutToSave.rounds) {
+      workoutToSave.rounds.forEach((round: any) => {
+        delete round.id;
+        round.exercises.forEach((ex: any) => delete ex.id);
+      });
+    }
+
+    // Type coercion for exercises inside rounds, ensure numbers are numbers
+    if (workoutToSave.rounds) {
+      workoutToSave.rounds.forEach(round => {
+        round.count = Number(round.count) || 1;
+        round.exercises.forEach(ex => {
+          ex.amount = Number(ex.amount) || 0;
+          ex.sets = Number(ex.sets) || 1;
+        });
+      });
+    }
+
+    workouts.update(currentWorkouts => {
+      const workoutMap = new Map(currentWorkouts.map(w => [w.name, w]));
+      if (originalName && originalName !== workoutToSave.name) {
+        workoutMap.delete(originalName);
+      }
+      workoutMap.set(workoutToSave.name, workoutToSave);
+      return Array.from(workoutMap.values());
+    });
+
+    if (originalName !== workout.name) {
+      const newSlug = encodeURIComponent(workout.name);
+      // Use replaceState to avoid adding to browser history and triggering a reload
+      history.replaceState({}, '', `/workout/${newSlug}`);
+      originalName = workout.name;
+    }
+  }
+
+  function addRound() {
+    if (!workout) return;
+    if (!workout.rounds) {
+      workout.rounds = [];
+    }
+    workout.rounds.push({
+      id: idCounter++,
+      count: 1,
+      exercises: []
+    });
+    workout = workout; // Trigger reactivity
+    saveWorkout();
+  }
+
+  function deleteRound(roundIndex: number) {
+    if (!workout || !workout.rounds) return;
+    if (confirm('Are you sure you want to delete this round?')) {
+      workout.rounds.splice(roundIndex, 1);
+      workout = workout; // Trigger reactivity
+      saveWorkout();
+    }
+  }
+
+  function addExercise(roundIndex: number) {
+    if (!workout || !workout.rounds) return;
+    workout.rounds[roundIndex].exercises.push({
+      id: idCounter++,
+      name: 'New Exercise',
+      type: 'reps',
+      amount: 10,
+      sets: 1,
+      rest: '30s'
+    });
+    workout = workout; // Trigger reactivity
+    saveWorkout();
+  }
+
+  function deleteExercise(roundIndex: number, exerciseIndex: number) {
+    if (!workout || !workout.rounds) return;
+    if (confirm('Are you sure you want to delete this exercise?')) {
+      workout.rounds[roundIndex].exercises.splice(exerciseIndex, 1);
+      workout = workout; // Trigger reactivity
+      saveWorkout();
+    }
+  }
 
   function deleteWorkout() {
     if (workout) {
       if (confirm(`Are you sure you want to delete "${workout.name}"?`)) {
-        workouts.update(currentWorkouts => currentWorkouts.filter(w => w.name !== workout?.name));
+        workouts.update(currentWorkouts => currentWorkouts.filter(w => w.name !== originalName));
         goto('/');
       }
     }
+  }
+
+  const flipDurationMs = 200;
+
+  function handleRoundDnd(e: CustomEvent<{ items: Round[]; info: { id: any; trigger: string } }>) {
+    if (!workout || !workout.rounds) return;
+    workout.rounds = e.detail.items;
+    saveWorkout();
+  }
+
+  function handleExerciseDnd(
+    e: CustomEvent<{ items: Exercise[]; info: { id: any; trigger: string } }>,
+    roundIndex: number
+  ) {
+    if (!workout || !workout.rounds) return;
+    workout.rounds[roundIndex].exercises = e.detail.items;
+    saveWorkout();
   }
 </script>
 
@@ -137,64 +262,265 @@
     padding: 0.5rem;
     border-radius: 4px;
   }
+
+  /* Editable Fields */
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 0.5rem;
+  }
+
+  .workout-name-input {
+    font-size: 2rem;
+    font-weight: bold;
+    text-align: center;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    margin-bottom: 2rem;
+  }
+  .workout-name-input:focus {
+    border-bottom: 2px solid #007bff;
+    outline: none;
+  }
+
+  .round-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .round-header h3 {
+    margin: 0;
+  }
+  .round-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+  .round-controls input {
+    width: 80px;
+    text-align: center;
+    margin-bottom: 0;
+  }
+  .round-controls label {
+    font-size: 0.9rem;
+    color: #555;
+    white-space: nowrap;
+  }
+
+  .button-delete-small {
+    background-color: transparent;
+    border: none;
+    color: #dc3545;
+    cursor: pointer;
+    font-size: 1.5rem;
+    padding: 0 0.5rem;
+    line-height: 1;
+  }
+  .button-delete-small:hover {
+    color: #a71d2a;
+  }
+
+  .exercise-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto; /* handle, form, delete */
+    gap: 1rem;
+    align-items: start;
+    padding: 1rem;
+    background-color: #fff;
+    border: 1px solid #eee;
+    margin-bottom: 0.75rem;
+    border-radius: 4px;
+  }
+
+  .drag-handle {
+    cursor: grab;
+    font-size: 1.5rem;
+    color: #aaa;
+    padding-top: 1rem;
+    user-select: none;
+  }
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .exercise-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .exercise-form-notes {
+    grid-column: 1 / -1;
+  }
+
+  .exercise-form label {
+    display: block;
+    font-size: 0.8rem;
+    color: #666;
+    margin-bottom: 0.25rem;
+  }
+  
+  .exercise-form input, .exercise-form select, .exercise-form textarea {
+      margin-bottom: 0;
+  }
+
+  .button-add {
+    background-color: #007bff;
+    color: white;
+    border: 1px solid #007bff;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 1rem;
+    display: block;
+    width: 100%;
+  }
+  .button-add:hover {
+    background-color: #0056b3;
+  }
 </style>
 
 <div class="container">
   {#if workout}
-    <h1>{workout.name}</h1>
+    <input class="workout-name-input" bind:value={workout.name} on:blur={saveWorkout} />
 
     <div class="actions">
-      <a href="/workout/{encodeURIComponent(workoutName)}/run" class="button button-start">Start Workout</a>
-      <a href="/workout/{encodeURIComponent(workoutName)}/edit" class="button button-edit">Edit Workout</a>
+      <a href="/workout/{encodeURIComponent(workout.name)}/run" class="button button-start">Start Workout</a>
+      <a href="/workout/{encodeURIComponent(originalName)}/edit" class="button button-edit">Edit YAML</a>
       <button on:click={deleteWorkout} class="button button-delete">Delete Workout</button>
     </div>
 
     <h2>Workout Structure</h2>
 
     {#if workout.rounds}
-      <div class="rounds-container">
-        {#each workout.rounds as round, roundIndex}
-          <div class="round-card">
-            <h3>Round {roundIndex + 1} ({round.count}x)</h3>
-            {#if round.rest_after_round}
-              <p class="round-meta">
-                Rest after round: {round.rest_after_round}{typeof round.rest_after_round ===
-                'number'
-                  ? 's'
-                  : ''}
-              </p>
-            {/if}
-            <ul class="exercise-list">
-              {#each round.exercises as exercise}
-                <li>
-                  <div class="exercise-name">{exercise.name}</div>
-                  <div class="exercise-details">
-                    {exercise.amount}{exercise.type === 'reps'
-                      ? ' reps'
-                      : typeof exercise.amount === 'number'
-                      ? 's'
-                      : ''}
-                    {#if exercise.sets && exercise.sets > 1}
-                      <span>&nbsp;&bull;&nbsp;{exercise.sets} sets</span>
-                    {/if}
-                    {#if exercise.rest}
-                      <span
-                        >&nbsp;&bull;&nbsp;{exercise.rest}{typeof exercise.rest === 'number'
-                          ? 's'
-                          : ''} rest</span
+      <div
+        class="rounds-container"
+        use:dndzone={{ items: workout.rounds, flipDurationMs, dragHandle: '.drag-handle' }}
+        on:consider={handleRoundDnd}
+        on:finalize={handleRoundDnd}
+      >
+        {#each workout.rounds as round, roundIndex (round.id)}
+          <div class="round-card" animate:flip={{ duration: flipDurationMs }}>
+            <div class="round-header">
+              <span class="drag-handle">☰</span>
+              <h3>Round {roundIndex + 1}</h3>
+              <div class="round-controls">
+                <label for="round-count-{roundIndex}">Count:</label>
+                <input
+                  id="round-count-{roundIndex}"
+                  type="number"
+                  bind:value={round.count}
+                  on:blur={saveWorkout}
+                  min="1"
+                />
+                <label for="round-rest-{roundIndex}">Rest After:</label>
+                <input
+                  id="round-rest-{roundIndex}"
+                  type="text"
+                  bind:value={round.rest_after_round}
+                  on:blur={saveWorkout}
+                  placeholder="e.g. 60s"
+                />
+              </div>
+              <button class="button-delete-small" on:click={() => deleteRound(roundIndex)} title="Delete Round"
+                >&times;</button
+              >
+            </div>
+
+            <div
+              class="exercise-list"
+              use:dndzone={{ items: round.exercises, flipDurationMs, dragHandle: '.drag-handle' }}
+              on:consider={e => handleExerciseDnd(e, roundIndex)}
+              on:finalize={e => handleExerciseDnd(e, roundIndex)}
+            >
+              {#each round.exercises as exercise, exerciseIndex (exercise.id)}
+                <div class="exercise-item" animate:flip={{ duration: flipDurationMs }}>
+                  <span class="drag-handle">☰</span>
+                  <div class="exercise-form">
+                    <div>
+                      <label for="ex-name-{roundIndex}-{exerciseIndex}">Name</label>
+                      <input
+                        id="ex-name-{roundIndex}-{exerciseIndex}"
+                        bind:value={exercise.name}
+                        on:blur={saveWorkout}
+                      />
+                    </div>
+                    <div>
+                      <label for="ex-type-{roundIndex}-{exerciseIndex}">Type</label>
+                      <select
+                        id="ex-type-{roundIndex}-{exerciseIndex}"
+                        bind:value={exercise.type}
+                        on:change={saveWorkout}
                       >
-                    {/if}
+                        <option value="reps">Reps</option>
+                        <option value="time">Time</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label for="ex-amount-{roundIndex}-{exerciseIndex}">Amount</label>
+                      <input
+                        id="ex-amount-{roundIndex}-{exerciseIndex}"
+                        type="text"
+                        bind:value={exercise.amount}
+                        on:blur={saveWorkout}
+                      />
+                    </div>
+                    <div>
+                      <label for="ex-sets-{roundIndex}-{exerciseIndex}">Sets</label>
+                      <input
+                        id="ex-sets-{roundIndex}-{exerciseIndex}"
+                        type="number"
+                        bind:value={exercise.sets}
+                        on:blur={saveWorkout}
+                        min="1"
+                      />
+                    </div>
+                    <div>
+                      <label for="ex-rest-{roundIndex}-{exerciseIndex}">Rest</label>
+                      <input
+                        id="ex-rest-{roundIndex}-{exerciseIndex}"
+                        type="text"
+                        bind:value={exercise.rest}
+                        on:blur={saveWorkout}
+                        placeholder="e.g. 45s"
+                      />
+                    </div>
+                    <div class="exercise-form-notes">
+                      <label for="ex-notes-{roundIndex}-{exerciseIndex}">Notes</label>
+                      <textarea
+                        id="ex-notes-{roundIndex}-{exerciseIndex}"
+                        bind:value={exercise.notes}
+                        on:blur={saveWorkout}
+                        rows="2"
+                      ></textarea>
+                    </div>
                   </div>
-                  {#if exercise.notes}
-                    <div class="exercise-notes">{exercise.notes}</div>
-                  {/if}
-                </li>
+                  <button
+                    class="button-delete-small"
+                    on:click={() => deleteExercise(roundIndex, exerciseIndex)}
+                    title="Delete Exercise">&times;</button
+                  >
+                </div>
               {/each}
-            </ul>
+            </div>
+            <button class="button-add" on:click={() => addExercise(roundIndex)}>+ Add Exercise</button>
           </div>
         {/each}
       </div>
+      <button class="button-add" on:click={addRound}>+ Add Round</button>
     {:else if workout.exercises}
+      <p>Inline editing for this workout format is not yet available.</p>
       <ul class="exercise-list standalone">
         {#each workout.exercises as exercise}
           <li>
@@ -223,6 +549,6 @@
       </ul>
     {/if}
   {:else}
-    <p>Workout not found. Redirecting...</p>
+    <p>Workout not found. Loading...</p>
   {/if}
 </div>
