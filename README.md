@@ -1,4 +1,4 @@
-# 💪 Workout App
+# 💪 Workout companion
 
 This is a SvelteKit application designed to help you manage and execute your workouts. Define your workout routines using a structured YAML format, and the app will guide you through each step with timers and progress tracking. It even includes a handy prompt to help you convert your free-text workout plans into the required YAML structure using an AI!
 
