@@ -18,7 +18,13 @@
       rounds: [
         {
           count: 1,
-          exercises: [{}],
+          exercises: [
+            {
+              name: 'New Exercise',
+              type: 'time',
+              amount: 30
+            }
+          ],
         }
       ]
     };
