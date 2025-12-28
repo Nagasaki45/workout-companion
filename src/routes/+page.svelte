@@ -164,7 +164,7 @@
 </style>
 
 <div class="container">
-  <h1>💪 Workout companion</h1>
+
 
   <div class="header-actions">
     <h2>My Workouts</h2>

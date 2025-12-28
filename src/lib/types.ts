@@ -20,6 +20,7 @@ export interface WorkoutDefinition {
   name: string;
   exercises?: Exercise[];
   rounds?: Round[];
+  lastModified?: number | import('firebase/firestore').Timestamp;
 }
 
 // This is the "flattened" step-by-step list we will generate.
